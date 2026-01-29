@@ -377,18 +377,26 @@ class ECDExtractorGeneric:
                     if re.match(r'^[A-Z]{2}$', country_line) and country_line not in ['MK', 'МК']:
                         self.data["TRACONCE1"]["CouCE125"] = country_line
                         
-                        # Град е 2 линии ПРЕД референтниот број
+                        # Адреса е 2 линии ПРЕД референтниот број
                         if i >= 2:
-                            city_line = self.lines[i - 2].strip()
-                            if city_line and len(city_line) > 2:
-                                self.data["TRACONCE1"]["CitCE124"] = city_line
+                            address_line = self.lines[i - 2].strip()
+                            if address_line and len(address_line) > 2:
+                                self.data["TRACONCE1"]["StrAndNumCE122"] = address_line
+                                
+                                # Извлечи поштенски код и град од адреса
+                                # Формат: "ФРЕЈСИМАТ БАСЕ ФИЦ 71210 Ст.Еусебе"
+                                postal_match = re.search(r'(\d{4,6})\s+([^\n]+)$', address_line)
+                                if postal_match:
+                                    self.data["TRACONCE1"]["PosCodCE123"] = postal_match.group(1)
+                                    self.data["TRACONCE1"]["CitCE124"] = postal_match.group(2).strip()
+                                else:
+                                    self.data["TRACONCE1"]["CitCE124"] = address_line
                         
                         # Име е 3 линии ПРЕД референтниот број
                         if i >= 3:
                             name_line = self.lines[i - 3].strip()
                             if name_line and len(name_line) > 5:
                                 self.data["TRACONCE1"]["NamCE17"] = name_line
-                                self.data["TRACONCE1"]["StrAndNumCE122"] = city_line  # Адресата е градот
                         
                         # TIN може да е после референтниот број
                         if i + 1 < len(self.lines):

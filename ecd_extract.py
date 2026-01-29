@@ -7,7 +7,7 @@ ECD PDF Extractor - Универзална скрипта за извлекув�
 
 import sys
 import argparse
-from extract_ecd_final import ECDExtractor
+from extract_ecd_generic import ECDExtractorGeneric
 
 
 def main():
@@ -44,7 +44,7 @@ def main():
         print("=" * 60)
         
         # Креирај екстрактор
-        extractor = ECDExtractor(args.pdf_file)
+        extractor = ECDExtractorGeneric(args.pdf_file, verbose=args.verbose)
         
         # Извлечи податоци
         data = extractor.extract_all()
