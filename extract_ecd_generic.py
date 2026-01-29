@@ -411,7 +411,114 @@ class ECDExtractorGeneric:
     
     def extract_gooitegds(self):
         """Извлекува податоци за стоките (GOOITEGDS)"""
-        item = {
+        # Најди ги сите commodity codes (8-цифрени броеви) - секој е нова ставка
+        # Барај само ПОСЛЕ data_start_index за да се избегнат шаблон кодовите
+        commodity_positions = []
+        search_start = max(self.data_start_index, 100)  # Почни барање после линија 100
+        
+        for i in range(search_start, len(self.lines)):
+            line = self.lines[i].strip()
+            if re.match(r'^\d{8}$', line):
+                commodity_positions.append((i, line))
+        
+        if not commodity_positions:
+            # Ако нема ниеден commodity code, креирај празна ставка
+            self.data["GOOITEGDS"].append(self._create_empty_item())
+            return
+        
+        # Извлечи ги сите ставки
+        for item_num, (commodity_index, commodity_code) in enumerate(commodity_positions, 1):
+            item = {
+                "IteNumGDS7": str(item_num),
+                "GroMasGDS46": None,
+                "GooDesGDS23": "",
+                "UNDanGooCodGDI1": None,
+                "COMCODGODITM": {
+                    "ComNomCMD1": commodity_code
+                },
+                "PACGS2": [],
+                "PRODOCDC2": []
+            }
+            
+            # Одреди го опсегот за оваа ставка
+            next_commodity_index = commodity_positions[item_num][0] if item_num < len(commodity_positions) else len(self.lines)
+            item_start = max(0, commodity_index - 30)
+            item_end = min(len(self.lines), next_commodity_index)
+            # Одреди го опсегот за оваа ставка
+            next_commodity_index = commodity_positions[item_num][0] if item_num < len(commodity_positions) else len(self.lines)
+            item_start = max(0, commodity_index - 30)
+            item_end = min(len(self.lines), next_commodity_index)
+            
+            # Опис на стока - барај ПОСЛЕ commodity code, после "Палета"
+            for i in range(commodity_index, min(commodity_index + 10, item_end)):
+                if 'Палета' in self.lines[i] or 'палета' in self.lines[i].lower():
+                    next_idx, desc = self.find_next_nonempty_line(i + 1, 3)
+                    if desc and len(desc) > 5:
+                        desc = re.sub(r'-1\s+ком\.', '-1ком.', desc)
+                        item["GooDesGDS23"] = desc
+                    break
+            
+            # Ако нема "Палета", барај текст после commodity code
+            if not item["GooDesGDS23"]:
+                for j in range(commodity_index + 1, min(commodity_index + 5, item_end)):
+                    potential_desc = self.lines[j].strip()
+                    if len(potential_desc) > 10 and not potential_desc.isdigit() and not re.match(r'^[A-Z]{2}$', potential_desc):
+                        item["GooDesGDS23"] = potential_desc
+                        break
+            
+            # Бруто маса и пакување - барај во опсегот на оваа ставка
+            package_types = ['PX', 'CT', 'BX', 'PA', 'PK', 'CS', 'CR']
+            for i in range(item_start, item_end):
+                if self.lines[i].strip() in package_types:
+                    num1_idx, num1 = self.find_next_nonempty_line(i + 1, 3)
+                    if num1:
+                        num2_idx, num2 = self.find_next_nonempty_line(num1_idx + 1, 3)
+                        if num2:
+                            try:
+                                mass = float(num2.replace(',', '.'))
+                                item["GroMasGDS46"] = mass
+                            except ValueError:
+                                pass
+                    
+                    num_idx, num_packages = self.find_next_nonempty_line(i - 1, 1, backward=True)
+                    if num_packages and num_packages.isdigit():
+                        package = {
+                            "KinOfPacGS23": self.lines[i].strip(),
+                            "NumOfPacGS24": num_packages,
+                            "MarNumOfPacGS21": None
+                        }
+                        item["PACGS2"].append(package)
+                    break
+            
+            # Previous documents - барај во целиот текст (за сега - подобрување потребно)
+            # TODO: Треба да ги филтрираме само документите за оваа ставка
+            if item_num == 1:  # Само за прва ставка земи ги сите документи
+                doc_pattern = r'(\w+)\(([^\)]+)\)'
+                doc_text = ' '.join(self.lines)
+                temp_docs = []
+                for match in re.finditer(doc_pattern, doc_text):
+                    doc_type = match.group(1)
+                    doc_ref = match.group(2)
+                    if doc_type in ['5010', '5016', '5009', '5007', 'POAN', '5069', 'AUN', '5077', 'T1']:
+                        temp_docs.append((doc_type, doc_ref, match.start()))
+                
+                temp_docs.sort(key=lambda x: x[2])
+                seen = set()
+                for doc_type, doc_ref, pos in temp_docs:
+                    if doc_type == '5007':
+                        continue
+                    if (doc_type, doc_ref) not in seen:
+                        item["PRODOCDC2"].append({
+                            "DocTypDC21": doc_type,
+                            "DocRefDC23": doc_ref
+                        })
+                        seen.add((doc_type, doc_ref))
+            
+            self.data["GOOITEGDS"].append(item)
+    
+    def _create_empty_item(self):
+        """Креира празна ставка"""
+        return {
             "IteNumGDS7": "1",
             "GroMasGDS46": None,
             "GooDesGDS23": "",
@@ -422,90 +529,6 @@ class ECDExtractorGeneric:
             "PACGS2": [],
             "PRODOCDC2": []
         }
-        
-        # Commodity code - 8-цифрен број (тарифен број)
-        for i, line in enumerate(self.lines):
-            if re.match(r'^\d{8}$', line.strip()):
-                item["COMCODGODITM"]["ComNomCMD1"] = line.strip()
-                break
-        
-        # Опис на стока - барај после "Палета" или пред commodity code
-        # Обично е во формат: "Палета\nОпис на стока..."
-        for i, line in enumerate(self.lines):
-            if 'Палета' in line or 'палета' in line.lower():
-                next_idx, desc = self.find_next_nonempty_line(i + 1, 3)
-                if desc and len(desc) > 5:
-                    # Отстрани празно место пред "ком"
-                    desc = re.sub(r'-1\s+ком\.', '-1ком.', desc)
-                    item["GooDesGDS23"] = desc
-                break
-        
-        # Ако нема "Палета", барај текст помеѓу commodity code и packages
-        if not item["GooDesGDS23"]:
-            # Барај текст околу commodity code
-            for i, line in enumerate(self.lines):
-                if line.strip() == item["COMCODGODITM"]["ComNomCMD1"]:
-                    # Барај неколку линии погоре за опис
-                    for j in range(max(0, i - 10), i):
-                        potential_desc = self.lines[j].strip()
-                        if len(potential_desc) > 10 and not potential_desc.isdigit():
-                            item["GooDesGDS23"] = potential_desc
-                            break
-                    break
-        
-        # Бруто маса - барај број после "PX" или друг вид пакување
-        # Структура: 7\nPX\n1.000\n635.000
-        package_types = ['PX', 'CT', 'BX', 'PA', 'PK', 'CS', 'CR']
-        for i, line in enumerate(self.lines):
-            if line.strip() in package_types:
-                # Има 2 броја после - прв е количина, втор е маса
-                num1_idx, num1 = self.find_next_nonempty_line(i + 1, 3)
-                if num1:
-                    num2_idx, num2 = self.find_next_nonempty_line(num1_idx + 1, 3)
-                    if num2:
-                        try:
-                            mass = float(num2.replace(',', '.'))
-                            item["GroMasGDS46"] = mass
-                        except ValueError:
-                            pass
-                
-                # Пакувањето
-                num_idx, num_packages = self.find_next_nonempty_line(i - 1, 1, backward=True)
-                if num_packages and num_packages.isdigit():
-                    package = {
-                        "KinOfPacGS23": line.strip(),
-                        "NumOfPacGS24": num_packages,
-                        "MarNumOfPacGS21": None
-                    }
-                    item["PACGS2"].append(package)
-                break
-        
-        # Previous documents - барај го pattern TYPE(REF);
-        doc_pattern = r'(\w+)\(([^\)]+)\)'
-        doc_text = ' '.join(self.lines)
-        temp_docs = []
-        for match in re.finditer(doc_pattern, doc_text):
-            doc_type = match.group(1)
-            doc_ref = match.group(2)
-            # Филтрирај само валидни типови
-            if doc_type in ['5010', '5016', '5009', '5007', 'POAN', '5069', 'AUN', '5077', 'T1']:
-                temp_docs.append((doc_type, doc_ref, match.start()))
-        
-        # Сортирај по позиција и додај само уникатни (без 5007 ако не е во очекуваните)
-        temp_docs.sort(key=lambda x: x[2])
-        seen = set()
-        for doc_type, doc_ref, pos in temp_docs:
-            # Прескокни 5007 ако веќе имаме слични документи
-            if doc_type == '5007':
-                continue
-            if (doc_type, doc_ref) not in seen:
-                item["PRODOCDC2"].append({
-                    "DocTypDC21": doc_type,
-                    "DocRefDC23": doc_ref
-                })
-                seen.add((doc_type, doc_ref))
-        
-        self.data["GOOITEGDS"].append(item)
     
     def find_next_nonempty_line(self, start_index: int, max_search: int = 10, backward: bool = False) -> Tuple[int, str]:
         """Наоѓа ја следната/претходната непразна линија"""

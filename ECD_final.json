@@ -59,6 +59,40 @@
           "DocRefDC23": "1013/30-039200/22/2022"
         }
       ]
+    },
+    {
+      "IteNumGDS7": "2",
+      "GroMasGDS46": 2016.0,
+      "GooDesGDS23": "ПЛАСТИЧНИ ГАЈБИ ЗА ПИВО - 1260 Парчиња",
+      "UNDanGooCodGDI1": null,
+      "COMCODGODITM": {
+        "ComNomCMD1": "39231090"
+      },
+      "PACGS2": [
+        {
+          "KinOfPacGS23": "PX",
+          "NumOfPacGS24": "100",
+          "MarNumOfPacGS21": null
+        }
+      ],
+      "PRODOCDC2": []
+    },
+    {
+      "IteNumGDS7": "3",
+      "GroMasGDS46": 8860.0,
+      "GooDesGDS23": "СТАКЛЕНИ ШИШИЊА ЗА ПИВО 0,5Л",
+      "UNDanGooCodGDI1": null,
+      "COMCODGODITM": {
+        "ComNomCMD1": "70109053"
+      },
+      "PACGS2": [
+        {
+          "KinOfPacGS23": "PX",
+          "NumOfPacGS24": "100",
+          "MarNumOfPacGS21": null
+        }
+      ],
+      "PRODOCDC2": []
     }
   ]
 }

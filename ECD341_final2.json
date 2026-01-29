@@ -79,6 +79,39 @@
           "DocRefDC23": "305980"
         }
       ]
+    },
+    {
+      "IteNumGDS7": "2",
+      "GroMasGDS46": 725.0,
+      "GooDesGDS23": "Миксер сер.бр.6823.- 1 ком.,,",
+      "UNDanGooCodGDI1": null,
+      "COMCODGODITM": {
+        "ComNomCMD1": "84743100"
+      },
+      "PACGS2": [],
+      "PRODOCDC2": []
+    },
+    {
+      "IteNumGDS7": "3",
+      "GroMasGDS46": 1597.0,
+      "GooDesGDS23": "Дигалки сер.бр.0618,0408,5487 со адаптери и  додатоци.- 3 ком.,",
+      "UNDanGooCodGDI1": null,
+      "COMCODGODITM": {
+        "ComNomCMD1": "84254200"
+      },
+      "PACGS2": [],
+      "PRODOCDC2": []
+    },
+    {
+      "IteNumGDS7": "4",
+      "GroMasGDS46": 795.0,
+      "GooDesGDS23": "Пумпи сер.бр.1307,0556,0569,- 3 ком,",
+      "UNDanGooCodGDI1": null,
+      "COMCODGODITM": {
+        "ComNomCMD1": "84136031"
+      },
+      "PACGS2": [],
+      "PRODOCDC2": []
     }
   ]
 }
