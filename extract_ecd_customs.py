@@ -235,68 +235,69 @@ class ECDExtractorCustoms(ECDExtractorGeneric):
     
     def extract_traconce1(self):
         """Извлекува податоци за примачот (TRACONCE1) - царински формат"""
-        # Примачот е под "8 Примач"
-        start_search = 0
+        # Примачот е под "8 Примач" со структура слична на извозникот:
+        # Линија N: "8 Примач"
+        # Линија N+1: "Не"
+        # Линија N+2: Име
+        # Линија N+3: Адреса
+        # Линија N+4: Поштенски код
+        # Линија N+5: Град
+        # Линија N+6: Земја (2-буквен код)
+        
         for i, line in enumerate(self.lines):
             if '8 Примач' in line:
-                start_search = i
+                # Името е на линија i+2 (после "Не" на i+1)
+                if i + 2 < len(self.lines):
+                    name_line = self.lines[i + 2].strip()
+                    if name_line and len(name_line) > 3 and name_line != 'Не':
+                        self.data["TRACONCE1"]["NamCE17"] = name_line
+                
+                # Адресата е на линија i+3
+                if i + 3 < len(self.lines):
+                    addr_line = self.lines[i + 3].strip()
+                    if addr_line and addr_line != 'Не' and not re.match(r'^\d{4,6}$', addr_line):
+                        self.data["TRACONCE1"]["StrAndNumCE122"] = addr_line
+                        
+                        # Обиди се да го извлечеш градот од адресата (после запирка)
+                        # Формат: "Билецка 50/10,Белград" -> Град: "Белград"
+                        if ',' in addr_line:
+                            city_from_addr = addr_line.split(',')[-1].strip()
+                            if city_from_addr and len(city_from_addr) > 2:
+                                self.data["TRACONCE1"]["CitCE124"] = city_from_addr
+                
+                # Поштенски код е на линија i+4
+                if i + 4 < len(self.lines):
+                    postal_line = self.lines[i + 4].strip()
+                    if postal_line.isdigit() and len(postal_line) >= 4 and len(postal_line) <= 6:
+                        # Само ако не е сè нули
+                        if postal_line != '00000' and postal_line != '0000':
+                            self.data["TRACONCE1"]["PosCodCE123"] = postal_line
+                        else:
+                            self.data["TRACONCE1"]["PosCodCE123"] = None
+                
+                # Ако градот не е извлечен од адресата, обиди се да го земеш од линија i+5
+                # Но само ако не е ист како адресата (да избегнеме дупликати)
+                if "CitCE124" not in self.data["TRACONCE1"] or not self.data["TRACONCE1"]["CitCE124"]:
+                    if i + 5 < len(self.lines):
+                        city_line = self.lines[i + 5].strip()
+                        # Не го земај ако е ист како адресата или содржи запирка (веројатно е адреса)
+                        if (city_line and len(city_line) > 2 and len(city_line) < 50 and 
+                            city_line != 'Не' and not re.match(r'^[A-Z]{2}$', city_line) and
+                            ',' not in city_line and
+                            ("StrAndNumCE122" not in self.data["TRACONCE1"] or 
+                             city_line != self.data["TRACONCE1"]["StrAndNumCE122"])):
+                            self.data["TRACONCE1"]["CitCE124"] = city_line
+                
+                # Земјата е на линија i+6 (2-буквен код)
+                if i + 6 < len(self.lines):
+                    country_line = self.lines[i + 6].strip()
+                    if re.match(r'^[A-Z]{2}$', country_line):
+                        if country_line == "MK":
+                            self.data["TRACONCE1"]["CouCE125"] = "МК"
+                        else:
+                            self.data["TRACONCE1"]["CouCE125"] = country_line
+                
                 break
-        
-        if start_search == 0:
-            return
-        
-        # Име на примач - прва значајна линија после "8 Примач"
-        for i in range(start_search + 1, min(len(self.lines), start_search + 10)):
-            line = self.lines[i].strip()
-            if line and len(line) > 3 and not re.match(r'^\d+$', line):
-                # Ова е името
-                if '9 Финансово' not in line and 'Не' != line and 'МИКЛОШИЧЕВА' not in line:
-                    self.data["TRACONCE1"]["NamCE17"] = line
-                    
-                    # Адресата е следна значајна линија или линии
-                    for j in range(i + 1, min(len(self.lines), i + 10)):
-                        addr_line = self.lines[j].strip()
-                        if addr_line and len(addr_line) > 5:
-                            # Провери дали не е број, код, или "СЛОВЕН"
-                            if (not re.match(r'^\d{4,6}$', addr_line) and 
-                                not re.match(r'^[A-Z]{2}$', addr_line) and 
-                                'СЛОВЕН' not in addr_line):
-                                
-                                # Провери дали има адресни компоненти
-                                if 'УЛИЦА' in addr_line.upper() or 'УЛ.' in addr_line.upper():
-                                    # Парсирај адреса: "МИКЛОШИЧЕВА УЛИЦА 1Д ДОМЖАЛЕ 00000"
-                                    self.data["TRACONCE1"]["StrAndNumCE122"] = addr_line
-                                    
-                                    # Извлечи поштенски код (последни 4-6 цифри)
-                                    postal_match = re.search(r'\s(\d{4,6})\s*$', addr_line)
-                                    if postal_match:
-                                        postal_code = postal_match.group(1)
-                                        # Само ако не е сè нули
-                                        if postal_code != '00000' and postal_code != '0000':
-                                            self.data["TRACONCE1"]["PosCodCE123"] = postal_code
-                                        else:
-                                            self.data["TRACONCE1"]["PosCodCE123"] = None
-                                        
-                                        # Градот е пред поштенскиот код
-                                        city_part = addr_line[:postal_match.start()].strip()
-                                        words = city_part.split()
-                                        if len(words) > 0:
-                                            self.data["TRACONCE1"]["CitCE124"] = words[-1]
-                                    else:
-                                        # Нема поштенски код, градот може да е на крајот
-                                        words = addr_line.split()
-                                        if len(words) > 2:
-                                            self.data["TRACONCE1"]["CitCE124"] = words[-1]
-                                            self.data["TRACONCE1"]["PosCodCE123"] = None
-                                    
-                                    # Земја е следна линија (2-буквен код)
-                                    for k in range(j + 1, min(len(self.lines), j + 5)):
-                                        country_line = self.lines[k].strip()
-                                        if re.match(r'^[A-Z]{2}$', country_line):
-                                            self.data["TRACONCE1"]["CouCE125"] = country_line
-                                            break
-                                    break
-                    break
         
         # TIN - обично None за странски примачи во царински формат
         self.data["TRACONCE1"]["TINCE159"] = None
