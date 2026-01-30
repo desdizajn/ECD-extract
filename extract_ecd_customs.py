@@ -169,61 +169,69 @@ class ECDExtractorCustoms(ECDExtractorGeneric):
         # Линија N+2: Адреса
         # Линија N+3: "Не"
         # Линија N+4: TIN
+        # Линија N+5: точка (.)
+        # Линија N+6: Град
+        # Линија N+7: Земја (2-буквен код)
         
         # Барај "Consignor/Exporter"
         for i, line in enumerate(self.lines):
             if 'Consignor/Exporter' in line or '2 Consignor' in line:
-                # Името е на следната линија
+                # Името е на следната линија (i+1)
                 if i + 1 < len(self.lines):
                     name_line = self.lines[i + 1].strip()
                     if name_line and len(name_line) > 3 and name_line != 'Не':
                         self.data["TRAEXPEX1"]["NamEX17"] = name_line
                 
-                # Адресата е 2 линии после
+                # Адресата е на линија i+2
                 if i + 2 < len(self.lines):
                     addr_line = self.lines[i + 2].strip()
-                    if addr_line and 'УЛ.' in addr_line.upper() or 'БУЛ.' in addr_line.upper():
-                        # Парсирај адреса: "УЛ.ПЕЦО СПИРКОВСКИ БР.8А-3 ПРИЛЕП"
+                    if addr_line and addr_line != 'Не':
+                        # Зачувај ја адресата
                         self.data["TRAEXPEX1"]["StrAndNumEX122"] = addr_line
                         
-                # TIN е 4-5 линии после
-                for j in range(i + 3, min(i + 8, len(self.lines))):
-                    tin_line = self.lines[j].strip()
+                # TIN е на линија i+4 (после "Не" на i+3)
+                if i + 4 < len(self.lines):
+                    tin_line = self.lines[i + 4].strip()
                     tin_match = re.search(r'([A-Z]{2}\d{13})', tin_line)
                     if tin_match:
                         self.data["TRAEXPEX1"]["TINEX159"] = tin_match.group(1)
-                        break
                 
-                # Поштенски код - барај 4-5 цифри во следните линии
-                for j in range(i + 3, min(i + 10, len(self.lines))):
-                    postal_line = self.lines[j].strip()
-                    if postal_line.isdigit() and len(postal_line) >= 4 and len(postal_line) <= 5:
-                        self.data["TRAEXPEX1"]["PosCodEX123"] = postal_line
-                        break
-                
-                # Град - барај чисто кириличен текст во следните линии
-                for j in range(i + 3, min(i + 10, len(self.lines))):
-                    city_line = self.lines[j].strip()
-                    if (city_line and re.match(r'^[А-ЯA-Z\s]+$', city_line) and 
-                        len(city_line) > 2 and len(city_line) < 30 and 
-                        city_line != 'MK' and city_line != 'Не'):
+                # Градот е на линија i+6 (после точка на i+5)
+                if i + 6 < len(self.lines):
+                    city_line = self.lines[i + 6].strip()
+                    if (city_line and len(city_line) > 2 and len(city_line) < 30 and 
+                        city_line != 'MK' and city_line != 'Не' and city_line != '.'):
                         self.data["TRAEXPEX1"]["CitEX124"] = city_line
-                        break
+                
+                # Земјата е на линија i+7 (2-буквен код)
+                if i + 7 < len(self.lines):
+                    country_line = self.lines[i + 7].strip()
+                    if re.match(r'^[A-Z]{2}$', country_line):
+                        if country_line == "MK":
+                            self.data["TRAEXPEX1"]["CouEX125"] = "МК"
+                        else:
+                            self.data["TRAEXPEX1"]["CouEX125"] = country_line
+                
+                # Поштенски код - барај во адресата или во следните линии
+                # Прво провери дали е во адресата (формат: "Билеша 50/10,Белград" или со број на крај)
+                if "StrAndNumEX122" in self.data["TRAEXPEX1"]:
+                    addr = self.data["TRAEXPEX1"]["StrAndNumEX122"]
+                    postal_match = re.search(r'\s(\d{4,5})\s*$', addr)
+                    if postal_match:
+                        self.data["TRAEXPEX1"]["PosCodEX123"] = postal_match.group(1)
+                    else:
+                        # Барај во следните линии
+                        for j in range(i + 5, min(i + 10, len(self.lines))):
+                            postal_line = self.lines[j].strip()
+                            if postal_line.isdigit() and len(postal_line) >= 4 and len(postal_line) <= 5:
+                                self.data["TRAEXPEX1"]["PosCodEX123"] = postal_line
+                                break
                 
                 break
         
         # Ако не е најден поштенски код, постави на None
         if "PosCodEX123" not in self.data["TRAEXPEX1"]:
             self.data["TRAEXPEX1"]["PosCodEX123"] = None
-        
-        # Земја - земи ја од TIN
-        if "TINEX159" in self.data["TRAEXPEX1"]:
-            tin = self.data["TRAEXPEX1"]["TINEX159"]
-            country_code = tin[:2]
-            if country_code == "MK":
-                self.data["TRAEXPEX1"]["CouEX125"] = "МК"
-            else:
-                self.data["TRAEXPEX1"]["CouEX125"] = country_code
     
     def extract_traconce1(self):
         """Извлекува податоци за примачот (TRACONCE1) - царински формат"""
@@ -464,24 +472,55 @@ class ECDExtractorCustoms(ECDExtractorGeneric):
                     break
             
             # Previous documents - барај "44 Дополнителни информации"
-            for i in range(commodity_index, min(commodity_index + 15, item_end)):
+            # Може да биде и до 30 линии после commodity code
+            for i in range(commodity_index, min(commodity_index + 35, item_end)):
                 line = self.lines[i].strip()
                 if '44 Дополнителни' in line:
-                    # Следната линија содржи документи
-                    if i + 1 < len(self.lines):
-                        doc_line = self.lines[i + 1].strip()
-                        # Парсирај документи: "AUN-MK19..., POAN-MK26..., 5016-0052639/2026"
-                        doc_pattern = r'([A-Z\d]+)-([A-Z\d]+/\d{4})'
-                        for match in re.finditer(doc_pattern, doc_line):
-                            doc_type = match.group(1)
-                            doc_ref = match.group(2)
-                            if doc_type in ['AUN', 'POAN', '5016', '5011', 'Y024', '5010', '5069']:
-                                item["PRODOCDC2"].append({
-                                    "DocTypDC21": doc_type,
-                                    "DocRefDC23": doc_ref
-                                })
-                                if self.verbose:
-                                    print(f"      Документ: {doc_type}-{doc_ref}")
+                    # Следните неколку линии содржат документи
+                    # Може да се распространети на повеќе линии
+                    doc_text = ""
+                    for j in range(i + 1, min(i + 6, len(self.lines))):
+                        next_line = self.lines[j].strip()
+                        # Прекини ако се најде нов маркер (46, 47, 31, итн.)
+                        if (next_line.startswith('46 ') or next_line.startswith('47 ') or 
+                            next_line.startswith('31 ') or next_line.startswith('Шифр')):
+                            break
+                        # Прескокни линии со "информации" или "проложени"
+                        if 'информации' in next_line or 'проложени' in next_line:
+                            continue
+                        doc_text += " " + next_line
+                    
+                    if doc_text:
+                        # Парсирај документи: "AUN-MK19..., POAN-MK26..., 5016-0052639, 5011-93015589"
+                        # Поддршка за формати: CODE-REFERENCE или CODE-REFERENCE/YEAR
+                        # Исто така поддршка за прекинати линии: "POAN- MK22POA..." (со празно место)
+                        
+                        # Прво отстрани ги непотребните празни места после цртички
+                        doc_text = re.sub(r'-\s+', '-', doc_text)
+                        
+                        doc_patterns = [
+                            r'([A-Z\d]+)-([A-Z\d]+/\d{4})',  # Format: CODE-REF/YEAR
+                            r'([A-Z\d]+)-([A-Z\d/]+)'         # Format: CODE-REF or CODE-REF/SOMETHING
+                        ]
+                        
+                        found_docs = set()  # За да избегнеме дупликати
+                        for doc_pattern in doc_patterns:
+                            for match in re.finditer(doc_pattern, doc_text):
+                                doc_type = match.group(1)
+                                doc_ref = match.group(2)
+                                doc_key = f"{doc_type}-{doc_ref}"
+                                
+                                # Провери дали е валиден тип на документ
+                                if (doc_key not in found_docs and 
+                                    doc_type in ['AUN', 'POAN', '5016', '5011', 'Y024', '5010', '5069', 
+                                                 'T010', 'E042', '2037']):
+                                    item["PRODOCDC2"].append({
+                                        "DocTypDC21": doc_type,
+                                        "DocRefDC23": doc_ref
+                                    })
+                                    found_docs.add(doc_key)
+                                    if self.verbose:
+                                        print(f"      Документ: {doc_type}-{doc_ref}")
                     break
             
             self.data["GOOITEGDS"].append(item)
