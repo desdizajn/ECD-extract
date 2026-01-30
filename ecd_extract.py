@@ -8,6 +8,8 @@ ECD PDF Extractor - Универзална скрипта за извлекув�
 import sys
 import argparse
 from extract_ecd_generic import ECDExtractorGeneric
+from extract_ecd_customs import ECDExtractorCustoms
+from ecd_format_detector import detect_ecd_format, ECDFormat
 
 
 def main():
@@ -43,8 +45,19 @@ def main():
         print(f"💾 Излез: {args.output}")
         print("=" * 60)
         
-        # Креирај екстрактор
-        extractor = ECDExtractorGeneric(args.pdf_file, verbose=args.verbose)
+        # Детектирај го форматот на документот
+        print("\n🔍 Детекција на формат...")
+        format_type = detect_ecd_format(args.pdf_file, verbose=args.verbose)
+        
+        if format_type == ECDFormat.STANDARD:
+            print("   ✅ Препознат: СТАНДАРДЕН ЕЦД формат")
+            extractor = ECDExtractorGeneric(args.pdf_file, verbose=args.verbose)
+        elif format_type == ECDFormat.CUSTOMS:
+            print("   ✅ Препознат: ЦАРИНСКИ ЕЦД формат")
+            extractor = ECDExtractorCustoms(args.pdf_file, verbose=args.verbose)
+        else:
+            print("   ⚠️  Форматот не е препознат, се користи стандарден екстрактор")
+            extractor = ECDExtractorGeneric(args.pdf_file, verbose=args.verbose)
         
         # Извлечи податоци
         data = extractor.extract_all()
