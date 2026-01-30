@@ -358,18 +358,29 @@ class ECDExtractorCustoms(ECDExtractorGeneric):
             item_start = max(0, commodity_index - 10)
             item_end = min(len(self.lines), next_commodity_index)
             
-            # Опис на стока - барај после "Взаемно определено" или ПРЕД commodity code
-            # Описот е обично прва долга линија (>20 карактери) со кирилични букви
+            # Опис на стока - барај ПРЕД commodity code, обично после пакувањето
+            # Описот е директно после пакувањето и пред "Ознаки и броеви"
             desc_found = False
-            # Барај во поширок опсег - од 10 линии пред commodity code до 15 после
-            for i in range(max(0, commodity_index - 10), min(commodity_index + 15, item_end)):
+            # Барај наназад од commodity code до "31 Колети"
+            for i in range(commodity_index - 1, max(0, commodity_index - 15), -1):
                 line = self.lines[i].strip()
-                # Барај линија со опис (обично ќе содржи кирилични букви и е подолга)
-                if (line and len(line) > 20 and 
-                    # Провери дали има кирилични букви
-                    any(ord(c) >= 1040 and ord(c) <= 1103 for c in line) and
+                
+                # Прескокни "Ознаки и броеви" и "32 Не"
+                if ('Ознаки и броеви' in line or line == '32' or line == 'Не' or 
+                    line.startswith('33 ') or line.isdigit()):
+                    continue
+                
+                # Прескокни линии со пакување (формати: "Взаемно определено-X-YY" или "Палета-X-YY")
+                if (re.search(r'(Взаемно определено|Палета|Картон|Кутија|Сандак)-\d+-[A-Z]{2}', line) or
+                    'на стока' in line or 'опис' in line or 'Колети' in line or line.startswith('31 ')):
+                    continue
+                
+                # Барај линија со опис (кирилични букви, подолга од 5 карактери)
+                if (line and len(line) >= 5 and 
+                    # Провери дали има кирилични букви или латинични букви (за стоки со латинични имиња)
+                    (any(ord(c) >= 1040 and ord(c) <= 1103 for c in line) or 
+                     any(c.isupper() for c in line)) and
                     # Не е маркер или поле
-                    not line.startswith('31 ') and
                     not line.startswith('32 ') and
                     not line.startswith('33 ') and
                     not line.startswith('34 ') and
@@ -381,17 +392,13 @@ class ECDExtractorCustoms(ECDExtractorGeneric):
                     not line.startswith('41 ') and
                     not line.startswith('44 ') and
                     not line.startswith('46 ') and
-                    'Ознаки и броеви' not in line and
-                    'Колети' not in line and
-                    'Взаемно определено' not in line and
                     'Бруто маса' not in line and
                     'Нето маса' not in line and
                     'Квота' not in line and
                     'ПОСТАПКА' not in line and
-                    'опис' not in line.lower() and
-                    'стока' not in line.lower() and
-                    # Не е само број
-                    not re.match(r'^\d+\.?\d*$', line)):
+                    # Не е само број или код
+                    not re.match(r'^\d+\.?\d*$', line) and
+                    not re.match(r'^[A-Z]{2}$', line)):
                     # Ова изгледа како опис
                     item["GooDesGDS23"] = line.rstrip(',').strip()
                     desc_found = True
@@ -419,10 +426,14 @@ class ECDExtractorCustoms(ECDExtractorGeneric):
                     break
             
             # Пакување - барај "31 Колети" и type code
+            # Поддржани формати:
+            # 1. Стар формат: "Взаемно определено-24-ZZ"
+            # 2. Нов формат: "Палета-14-PX" или "Картон-5-CT"
             for i in range(item_start, commodity_index + 3):
                 line = self.lines[i].strip()
+                
+                # Стар формат
                 if 'Взаемно определено' in line:
-                    # Парсирај тип на пакување: "Взаемно определено-4-ZZ"
                     pack_match = re.search(r'определено-(\d+)-([A-Z]{2})', line)
                     if pack_match:
                         num_packages = pack_match.group(1)
@@ -435,6 +446,21 @@ class ECDExtractorCustoms(ECDExtractorGeneric):
                         item["PACGS2"].append(package)
                         if self.verbose:
                             print(f"      Пакување: {num_packages} x {pack_type}")
+                        break
+                
+                # Нов формат: "Палета-14-PX", "Картон-5-CT", "Кутија-10-BX", итн.
+                pack_match = re.search(r'(Палета|Картон|Кутија|Сандак|Врека|Контејнер)-(\d+)-([A-Z]{2})', line)
+                if pack_match:
+                    num_packages = pack_match.group(2)
+                    pack_type = pack_match.group(3)
+                    package = {
+                        "KinOfPacGS23": pack_type,
+                        "NumOfPacGS24": num_packages,
+                        "MarNumOfPacGS21": None
+                    }
+                    item["PACGS2"].append(package)
+                    if self.verbose:
+                        print(f"      Пакување: {num_packages} x {pack_type} ({pack_match.group(1)})")
                     break
             
             # Previous documents - барај "44 Дополнителни информации"
